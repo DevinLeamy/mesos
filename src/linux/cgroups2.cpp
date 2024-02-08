@@ -284,10 +284,29 @@ Try<set<string>> available(const string& cgroup)
 }
 
 
+Try<bool> available(const string& cgroup, const vector<string>& subsystems)
+{
+  Try<set<string>> available = controllers::available(cgroup);
+  if (available.isError()) {
+    return Error(
+      "Failed to fetch available subsystems for '" + cgroup + "'" +
+      available.error());
+  }
+
+  foreach (const string& subsystem, subsystems) {
+    if (available.get().find(subsystem) == available.get().end()) {
+      // "subsystem" is not available.
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
 Try<Nothing> enable(const string& cgroup, const vector<string>& subsystems)
 {
-  Try<string> contents =
-    cgroups2::read(cgroup, cgroups2::control::SUBTREE_CONTROLLERS);
+  Try<string> contents = cgroups2::read(cgroup, control::SUBTREE_CONTROLLERS);
 
   if (contents.isError()) {
     return Error(contents.error());

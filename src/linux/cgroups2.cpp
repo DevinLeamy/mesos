@@ -125,15 +125,8 @@ struct State
     _disabled.insert(subsystem);
   }
 
-  // Check if a subsystem is enabled.
-  bool enabled(const string& subsystem)
-  {
-    return _enabled.find(subsystem) != _enabled.end();
-  }
-
   set<string> enabled() const { return _enabled; }
 
-  set<string> enabled() const { return _enabled; }
   set<string> disabled() const { return _disabled; }
 
   bool enabled(const string& subsystem) const
@@ -271,6 +264,44 @@ Try<Nothing> unmount()
   }
 
   return Nothing();
+}
+
+Try<Nothing> prepare(const vector<string>& subsystems)
+{
+  if (!cgroups2::enabled()) {
+    return Error("cgroups2 is not supported");
+  }
+
+  if (geteuid() != 0) {
+    return Error("Using cgroups2 requires root permissions");
+  }
+
+  Try<bool> mounted = cgroups2::mounted();
+  if (mounted.isError()) {
+    return Error(
+      "Failed to check if the cgroup2 filesytem is mounted: " +
+      mounted.error());
+  }
+
+  if (!mounted.get()) {
+    Try<Nothing> result = cgroups2::mount();
+    if (result.isError()) {
+      return Error(
+        "Failed to mount cgroups hierarchy at '" + cgroups2::MOUNT_POINT +
+        "': " + result.error());
+    }
+  }
+
+  Try<bool> available =
+    cgroups2::subsystems::available(ROOT_CGROUP, subsystems);
+  if (available.isError()) {
+    return Error("Failed to find available subsystems: " + available.error());
+  }
+  if (!available.get()) {
+    return Error("All requested subsystems are not available on the host");
+  }
+
+  return cgroups2::subsystems::enable(ROOT_CGROUP, subsystems);
 }
 
 namespace subsystems {

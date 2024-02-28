@@ -59,6 +59,29 @@ TEST_F(Cgroups2Test, ROOT_CGROUPS2_AvailableSubsystems)
   }
 }
 
+TEST_F(Cgroups2Test, ROOT_CGROUPS2_Prepare)
+{
+  bool testMountedCgroup = false;
+  Try<bool> mounted = cgroups2::mounted();
+  EXPECT_SOME(mounted);
+  if (!*mounted) {
+    EXPECT_SOME(cgroups2::mount());
+    testMountedCgroup = true;
+  }
+
+  EXPECT_SOME(cgroups2::prepare({"cpu"}));
+  Try<set<string>> available =
+    cgroups2::subsystems::available(cgroups2::ROOT_CGROUP);
+  EXPECT_SOME(available);
+  EXPECT_TRUE(available.get().count("cpu") == 1);
+  EXPECT_SOME_TRUE(
+    cgroups2::subsystems::enabled(cgroups2::ROOT_CGROUP, {"cpu"}));
+
+  if (testMountedCgroup) {
+    EXPECT_SOME(cgroups2::unmount());
+  }
+}
+
 } // namespace tests {
 } // namespace internal {
 } // namespace mesos {

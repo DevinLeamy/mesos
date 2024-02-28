@@ -17,6 +17,10 @@
 #ifndef __CGROUPS_V2_HPP__
 #define __CGROUPS_V2_HPP__
 
+#include <set>
+#include <string>
+#include <vector>
+
 #include <stout/nothing.hpp>
 #include <stout/try.hpp>
 
@@ -41,6 +45,12 @@ Try<bool> mounted();
 // the cgroup2 file system is not mounted at /sys/fs/cgroup. It's the
 // responsibility of the caller to ensure all child cgroups have been destroyed.
 Try<Nothing> unmount();
+
+// Entrypoint into cgroups2. Checks that the host supports cgroups2
+// and all of the requested subsystems, then mounts the cgroup2 filesystem
+// to /sys/fs/cgroup, if not already mounted, and enables all of the requested
+// subsystems.
+Try<Nothing> prepare(const std::vector<std::string>& subsystems);
 
 namespace subsystems {
 

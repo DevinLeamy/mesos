@@ -125,6 +125,14 @@ struct State
     _disabled.insert(subsystem);
   }
 
+  // Check if a subsystem is enabled.
+  bool enabled(const string& subsystem)
+  {
+    return _enabled.find(subsystem) != _enabled.end();
+  }
+
+  set<string> enabled() const { return _enabled; }
+
   set<string> enabled() const { return _enabled; }
   set<string> disabled() const { return _disabled; }
 
@@ -316,6 +324,24 @@ Try<Nothing> enable(const string& cgroup, const vector<string>& subsystems)
   control.enable(subsystems);
   return cgroups2::write(
     cgroup, control::SUBTREE_CONTROLLERS, stringify(control));
+}
+
+Try<bool> enabled(const string& cgroup, const vector<string>& subsystems)
+{
+  Try<string> contents = cgroups2::read(cgroup, control::SUBTREE_CONTROLLERS);
+
+  if (contents.isError()) {
+    return Error(contents.error());
+  }
+
+  subtree_control::State control = subtree_control::State::parse(*contents);
+  foreach (const string& subsystem, subsystems) {
+    if (!control.enabled(subsystem)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 } // namespace subsystems {

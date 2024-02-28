@@ -59,6 +59,10 @@ Try<Nothing> enable(
   const std::string& cgroup,
   const std::vector<std::string>& subsystems);
 
+// Checks if the given subsystems are enabled in the provided cgroup.
+Try<bool> enabled(
+  const std::string& cgroup, const std::vector<std::string>& subsystems);
+
 } // namespace subsystems {
 } // namespace cgroups2
 

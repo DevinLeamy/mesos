@@ -14,6 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "linux/cgroups2.hpp"
+
 #include <iterator>
 #include <ostream>
 #include <set>
@@ -25,7 +27,6 @@
 #include <stout/stringify.hpp>
 #include <stout/try.hpp>
 
-#include "linux/cgroups2.hpp"
 #include "linux/fs.hpp"
 
 using std::ostream;
@@ -82,7 +83,7 @@ struct State
   // unknown will fail when writing it back out.
   void enable(const vector<string>& subsystems)
   {
-    foreach(const string& subsystem, subsystems) {
+    foreach (const string& subsystem, subsystems) {
       enable(subsystem);
     }
   }
@@ -103,7 +104,7 @@ struct State
     _disabled.insert(subsystem);
   }
 
-  set<string> enabled()  const { return _enabled; }
+  set<string> enabled() const { return _enabled; }
   set<string> disabled() const { return _disabled; }
 
   bool enabled(const string& subsystem) const
@@ -116,8 +117,8 @@ struct State
     State control;
     vector<string> subsystems = strings::split(contents, " ");
     control._enabled.insert(
-        std::make_move_iterator(subsystems.begin()),
-        std::make_move_iterator(subsystems.end()));
+      std::make_move_iterator(subsystems.begin()),
+      std::make_move_iterator(subsystems.end()));
     return control;
   }
 
@@ -129,10 +130,10 @@ private:
 
 std::ostream& operator<<(std::ostream& stream, const State& state)
 {
-  foreach(const string& system, state.enabled()) {
+  foreach (const string& system, state.enabled()) {
     stream << "+" << system << " ";
   }
-  foreach(const string& system, state.disabled()) {
+  foreach (const string& system, state.disabled()) {
     stream << "-" << system << " ";
   }
   return stream;
@@ -141,13 +142,9 @@ std::ostream& operator<<(std::ostream& stream, const State& state)
 } // namespace subtree_control {
 
 
-
 Try<string> read(const string& cgroup, const string& control)
 {
-  return os::read(path::join(
-    cgroups2::MOUNT_POINT,
-    cgroup,
-    control));
+  return os::read(path::join(cgroups2::MOUNT_POINT, cgroup, control));
 }
 
 
@@ -156,11 +153,7 @@ Try<Nothing> write(
   const string& control,
   const string& value)
 {
-  return os::write(path::join(
-      cgroups2::MOUNT_POINT,
-      cgroup,
-      control
-    ), value);
+  return os::write(path::join(cgroups2::MOUNT_POINT, cgroup, control), value);
 }
 
 
@@ -179,27 +172,24 @@ Try<Nothing> mount()
 
   Try<bool> mounted = cgroups2::mounted();
   if (mounted.isError()) {
-    return Error("Failed to check if cgroups2 filesystem is mounted: "
-                 + mounted.error());
+    return Error(
+      "Failed to check if cgroups2 filesystem is mounted: " + mounted.error());
   }
   if (*mounted) {
-    return Error("cgroup2 filesystem is already mounted at"
-                 " '" + cgroups2::MOUNT_POINT + "'");
+    return Error(
+      "cgroup2 filesystem is already mounted at '" + cgroups2::MOUNT_POINT +
+      "'");
   }
 
   Try<Nothing> mkdir = os::mkdir(cgroups2::MOUNT_POINT);
   if (mkdir.isError()) {
-    return Error("Failed to create cgroups2 directory"
-                 " '" + cgroups2::MOUNT_POINT + "'"
-                 ": " + mkdir.error());
+    return Error(
+      "Failed to create cgroups2 directory '" + cgroups2::MOUNT_POINT +
+      "': " + mkdir.error());
   }
 
   return mesos::internal::fs::mount(
-    None(),
-    cgroups2::MOUNT_POINT,
-    cgroups2::FILE_SYSTEM,
-    0,
-    None());
+    None(), cgroups2::MOUNT_POINT, cgroups2::FILE_SYSTEM, 0, None());
 }
 
 
@@ -215,8 +205,8 @@ Try<bool> mounted()
       if (entry.dir == MOUNT_POINT) {
         return true;
       }
-      return Error("Found cgroups2 mount at an unexpected location"
-                   " '" + entry.dir + "'");
+      return Error(
+        "Found cgroups2 mount at an unexpected location '" + entry.dir + "'");
     }
   }
 
@@ -228,8 +218,9 @@ Try<Nothing> unmount()
 {
   Try<bool> mounted = cgroups2::mounted();
   if (mounted.isError()) {
-    return Error("Failed to check if the cgroup2 filesystem is mounted: "
-                 + mounted.error());
+    return Error(
+      "Failed to check if the cgroup2 filesystem is mounted: " +
+      mounted.error());
   }
 
   if (!*mounted) {
@@ -238,15 +229,16 @@ Try<Nothing> unmount()
 
   Try<Nothing> result = mesos::internal::fs::unmount(MOUNT_POINT);
   if (result.isError()) {
-    return Error("Failed to unmount the cgroup2 hierarchy"
-                 " '" + cgroups2::MOUNT_POINT + "': " + result.error());
+    return Error(
+      "Failed to unmount the cgroup2 hierarchy '" + cgroups2::MOUNT_POINT +
+      "': " + result.error());
   }
 
   Try<Nothing> rmdir = os::rmdir(cgroups2::MOUNT_POINT);
   if (rmdir.isError()) {
     return Error(
-        "Failed to remove directory '" + cgroups2::MOUNT_POINT + "': " +
-        rmdir.error());
+      "Failed to remove directory '" + cgroups2::MOUNT_POINT +
+      "': " + rmdir.error());
   }
 
   return Nothing();
@@ -256,28 +248,25 @@ namespace subsystems {
 
 Try<set<string>> available(const string& cgroup)
 {
-  Try<string> contents = cgroups2::read(
-      cgroup,
-      cgroups2::control::CONTROLLERS);
+  Try<string> contents = cgroups2::read(cgroup, cgroups2::control::CONTROLLERS);
 
   if (contents.isError()) {
-    return Error("Failed to read cgroup.controllers in"
-                 " '" + cgroup + "': " + contents.error());
+    return Error(
+      "Failed to read cgroup.controllers in '" + cgroup +
+      "': " + contents.error());
   }
 
   vector<string> subsystems = strings::split(*contents, " ");
-  return set<string>(std::make_move_iterator(subsystems.begin()),
-                     std::make_move_iterator(subsystems.end()));
+  return set<string>(
+    std::make_move_iterator(subsystems.begin()),
+    std::make_move_iterator(subsystems.end()));
 }
 
 
-Try<Nothing> enable(
-    const string& cgroup,
-    const vector<string>& subsystems)
+Try<Nothing> enable(const string& cgroup, const vector<string>& subsystems)
 {
-  Try<string> contents = cgroups2::read(
-      cgroup,
-      cgroups2::control::SUBTREE_CONTROLLERS);
+  Try<string> contents =
+    cgroups2::read(cgroup, cgroups2::control::SUBTREE_CONTROLLERS);
 
   if (contents.isError()) {
     return Error(contents.error());
@@ -286,11 +275,8 @@ Try<Nothing> enable(
   subtree_control::State control = subtree_control::State::parse(*contents);
   control.enable(subsystems);
   return cgroups2::write(
-      cgroup,
-      control::SUBTREE_CONTROLLERS,
-      stringify(control));
+    cgroup, control::SUBTREE_CONTROLLERS, stringify(control));
 }
 
 } // namespace subsystems {
-
 } // namespace cgroups2 {

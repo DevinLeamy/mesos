@@ -224,15 +224,47 @@ private:
 class Cgroups2Filter : public TestFilter
 {
 public:
-  Cgroups2Filter() {}
+  Cgroups2Filter()
+  {
+#ifdef __linux__
+    Try<bool> mounted = cgroups2::mounted();
+    if (mounted.isError()) {
+      std::cerr
+        << "-------------------------------------------------------------\n"
+        << "We cannot run any cgroups v2 tests because we could not determine\n"
+        << "whether the cgroup2 filesystem was mounted at \n"
+        << "'/sys/fs/cgroup'.\n"
+        << "cgroups2 tests have been disabled.\n"
+        << "-------------------------------------------------------------"
+        << std::endl;
+      error = mounted.error();
+    } else if (!*mounted) {
+      std::cerr
+        << "-------------------------------------------------------------\n"
+        << "We cannot run any cgroups v2 tests because the cgroup2 filesystem\n"
+        << "is not mounted at '/sys/fs/cgroup'. The filesystem can be\n"
+        << "mounted, if available, using the command:\n"
+        << "$ mount -t cgroup2 none /sys/fs/cgroup\n"
+        << "cgroups2 tests have been disabled.\n"
+        << "-------------------------------------------------------------"
+        << std::endl;
+
+      error =
+        Error("The cgroup2 filesystem is not mounted at '/sys/fs/cgroup'");
+    }
+#endif // __linux__
+  }
 
   // We disable cgroups2 tests if cgroups2 is not enabled or the user is
   // not root.
   bool disable(const ::testing::TestInfo* test) const override
   {
-
     if (matches(test, "CGROUPS2_") || matches(test, "Cgroups2")) {
 #ifdef __linux__
+      if (error.isSome()) {
+        return true;
+      }
+
       Result<string> user = os::user();
       CHECK_SOME(user);
       return *user != "root" || !cgroups2::enabled();
@@ -243,6 +275,9 @@ public:
 
     return false;
   }
+
+private:
+  Option<Error> error;
 };
 
 

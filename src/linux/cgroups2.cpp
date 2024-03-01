@@ -304,6 +304,23 @@ Try<Nothing> prepare(const vector<string>& subsystems)
   return cgroups2::subsystems::enable(ROOT_CGROUP, subsystems);
 }
 
+
+Try<Nothing> create(const string& cgroup, bool recursive)
+{
+  string absolutePath = path::join(MOUNT_POINT, cgroup);
+  if (os::exists(absolutePath)) {
+    return Error("A cgroup at '" + absolutePath + "' already exists");
+  }
+
+  Try<Nothing> mkdir = os::mkdir(absolutePath, recursive);
+  if (mkdir.isError()) {
+    return Error(
+      "Failed to create directory '" + absolutePath + "': " + mkdir.error());
+  }
+
+  return Nothing();
+}
+
 namespace subsystems {
 
 Try<set<string>> available(const string& cgroup)

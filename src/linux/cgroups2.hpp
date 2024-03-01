@@ -52,6 +52,19 @@ Try<Nothing> unmount();
 // subsystems.
 Try<Nothing> prepare(const std::vector<std::string>& subsystems);
 
+// Creates a cgroup off of the base hierarchy. If `cgroup` is a nested cgroup
+// and any parent cgroups do not exist an error will be returned, unless
+// `recursive` is set to `true`. If the cgroup already exists, an error will
+// also be returned.
+//
+// Examples:
+// - `cgroup` = "foo" will create cgroup `/sys/fs/cgroup/foo`.
+// - `cgroup` = "foo/bar" will create cgroup `/sys/fs/cgroup/foo/bar` if:
+//     1) cgroup `foo` exists.
+//     2) cgroup `foo` does not exist and `recursive` = `true`.
+//   An error will be thrown otherwise.
+Try<Nothing> create(const std::string& cgroup, bool recursive = false);
+
 namespace subsystems {
 
 // Gets the subsystems that can be controlled by the provided cgroup.

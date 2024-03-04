@@ -65,6 +65,13 @@ Try<Nothing> prepare(const std::vector<std::string>& subsystems);
 //   An error will be thrown otherwise.
 Try<Nothing> create(const std::string& cgroup, bool recursive = false);
 
+// Destroys a cgroup off of the base hierarchy. Will recursively destroy
+// any child cgroups. If the cgroup does not exist, an error will be returned.
+// It's the responsibility of the caller to ensure all cgroups that will be
+// destroyed do not have any child processes, otherwise an error will be
+// returned.
+Try<Nothing> destroy(const std::string& cgroup);
+
 namespace subsystems {
 
 // Gets the subsystems that can be controlled by the provided cgroup.

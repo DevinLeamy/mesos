@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include <stout/bytes.hpp>
 #include <stout/nothing.hpp>
 #include <stout/try.hpp>
 
@@ -94,6 +95,14 @@ Try<bool> enabled(
   const std::string& cgroup, const std::vector<std::string>& subsystems);
 
 } // namespace subsystems {
+
+namespace memory {
+
+// Get the total amount of memory currently being used by the cgroup and its
+// descendants.
+Try<Bytes> usage(const std::string& cgroup);
+
+} // namespace memory {
 } // namespace cgroups2
 
 #endif // __CGROUPS_V2_HPP__

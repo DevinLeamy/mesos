@@ -417,4 +417,28 @@ Try<bool> enabled(const string& cgroup, const vector<string>& subsystems)
 }
 
 } // namespace subsystems {
+
+namespace memory {
+
+namespace control {
+
+const string CURRENT = "memory.current";
+
+} // namespace control {
+
+Try<Bytes> usage(const string& cgroup)
+{
+  RETURN_DNE_ERROR_IF_ROOT_CGROUP(cgroup);
+  Try<string> contents = cgroups2::read(cgroup, memory::control::CURRENT);
+
+  if (contents.isError()) {
+    return Error(
+      "Failed to read 'memory.current' in '" + cgroup +
+      "': " + contents.error());
+  }
+
+  return Bytes::parse(strings::trim(*contents) + "B");
+}
+
+} // namespace memory {
 } // namespace cgroups2 {

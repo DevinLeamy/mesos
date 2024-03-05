@@ -32,6 +32,33 @@ namespace tests {
 class Cgroups2Test : public TemporaryDirectoryTest {};
 
 
+class Cgroups2MemoryTest : public Cgroups2Test
+{
+public:
+  static void SetUpTestCase()
+  {
+    Cgroups2Test::SetUpTestCase();
+    cgroups2::prepare({"memory"});
+
+    // Clean up from previous runs.
+    cgroups2::destroy("test-cgroup");
+
+    EXPECT_SOME(cgroups2::create("test-cgroup"));
+    EXPECT_SOME(cgroups2::subsystems::enable("test-cgroup", {"memory"}));
+    EXPECT_SOME_TRUE(cgroups2::subsystems::enabled("test-cgroup", {"memory"}));
+  }
+
+
+  static void TearDownTestCase()
+  {
+    cgroups2::destroy("test-cgroup");
+    Cgroups2Test::TearDownTestCase();
+  }
+
+  const string cgroup = "test-cgroup";
+};
+
+
 TEST_F(Cgroups2Test, ROOT_CGROUPS2_Enabled)
 {
   EXPECT_TRUE(cgroups2::enabled());
@@ -56,6 +83,15 @@ TEST_F(Cgroups2Test, ROOT_CGROUPS2_Prepare)
   EXPECT_TRUE(available.get().count("cpu") == 1);
   EXPECT_SOME_TRUE(
     cgroups2::subsystems::enabled(cgroups2::ROOT_CGROUP, {"cpu"}));
+}
+
+
+TEST_F(Cgroups2MemoryTest, ROOT_CGROUPS2_MemoryUsage)
+{
+  // Does not exist for the root cgroup.
+  EXPECT_ERROR(cgroups2::memory::usage(cgroups2::ROOT_CGROUP));
+
+  EXPECT_SOME(cgroups2::memory::usage(cgroup));
 }
 
 } // namespace tests {

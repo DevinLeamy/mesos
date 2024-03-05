@@ -23,6 +23,7 @@
 
 #include <stout/bytes.hpp>
 #include <stout/nothing.hpp>
+#include <stout/option.hpp>
 #include <stout/try.hpp>
 
 namespace cgroups2 {
@@ -98,6 +99,26 @@ Try<bool> enabled(
 
 namespace memory {
 
+// Memory usage limit.
+// Represents a snapshot of "memory.high" and "memory.max" value.
+struct Limit
+{
+  // Limit representing no limit AKA "unlimited".
+  static Limit max();
+
+  // Parse a limit from a string.
+  // Format:
+  // """
+  // max OR <bytes>
+  // """
+  static Try<Limit> parse(const std::string& value);
+
+  bool operator==(const Limit& other) const;
+
+  // Limit in bytes. None if the limit is "unlimited".
+  Option<Bytes> bytes;
+};
+
 // Get the total amount of memory currently being used by the cgroup and its
 // descendants.
 Try<Bytes> usage(const std::string& cgroup);
@@ -113,6 +134,14 @@ Try<Nothing> minimum(const std::string& cgroup, const Bytes& bytes);
 // conditions.
 // Only exists for non-root cgroups.
 Try<Bytes> minimum(const std::string& cgroup);
+
+// Set the maximum memory that can be used by a cgroup and its descendants.
+// Exceeding the limit will trigger the OOM killer.
+// Can only be set for non-root cgroups.
+Try<Nothing> maximum(const std::string& cgroup, const Limit& limit);
+
+// Get the maximum memory that can be used by a cgroup and its descendants.
+Try<Limit> maximum(const std::string& cgroup);
 
 } // namespace memory {
 } // namespace cgroups2

@@ -420,10 +420,46 @@ Try<bool> enabled(const string& cgroup, const vector<string>& subsystems)
 
 namespace memory {
 
+Limit Limit::max() { return Limit{.bytes = None()}; }
+
+
+Try<Limit> Limit::parse(const string& value)
+{
+  const string& trimmed = strings::trim(value);
+  if (trimmed == "max") {
+    return Limit::max();
+  }
+
+  Try<Bytes> bytes = Bytes::parse(trimmed + "B");
+  if (bytes.isError()) {
+    return Error("Invalid byte format '" + trimmed + "': " + bytes.error());
+  }
+
+  return Limit{.bytes = *bytes};
+}
+
+
+bool Limit::operator==(const Limit& other) const
+{
+  return bytes == other.bytes;
+}
+
+
+std::ostream& operator<<(std::ostream& stream, const Limit& limit)
+{
+  if (limit.bytes.isNone()) {
+    stream << "max";
+  } else {
+    stream << std::to_string(limit.bytes.get().bytes());
+  }
+  return stream;
+}
+
 namespace control {
 
 const string CURRENT = "memory.current";
 const string MIN = "memory.min";
+const string MAX = "memory.max";
 
 } // namespace control {
 
@@ -461,6 +497,27 @@ Try<Bytes> minimum(const string& cgroup)
   }
 
   return Bytes::parse(strings::trim(*contents) + "B");
+}
+
+
+Try<Nothing> maximum(const string& cgroup, const Limit& limit)
+{
+  RETURN_DNE_ERROR_IF_ROOT_CGROUP(cgroup);
+  return cgroups2::write(cgroup, memory::control::MAX, stringify(limit));
+}
+
+
+Try<Limit> maximum(const string& cgroup)
+{
+  RETURN_DNE_ERROR_IF_ROOT_CGROUP(cgroup);
+  Try<string> contents = cgroups2::read(cgroup, memory::control::MAX);
+
+  if (contents.isError()) {
+    return Error(
+      "Failed to read 'memory.max' in '" + cgroup + "': " + contents.error());
+  }
+
+  return Limit::parse(strings::trim(*contents));
 }
 
 } // namespace memory {

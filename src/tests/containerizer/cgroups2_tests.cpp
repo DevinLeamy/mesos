@@ -106,6 +106,20 @@ TEST_F(Cgroups2MemoryTest, ROOT_CGROUPS2_MemoryMinimum)
   EXPECT_SOME(cgroups2::memory::minimum(cgroup, bytes));
   EXPECT_EQ(*cgroups2::memory::minimum(cgroup), bytes);
 }
+
+
+TEST_F(Cgroups2MemoryTest, ROOT_CGROUPS2_MemoryMaximum)
+{
+  const cgroups2::memory::Limit limit = *cgroups2::memory::Limit::parse("30");
+
+  // Does not exist for the root cgroup.
+  EXPECT_ERROR(cgroups2::memory::maximum(cgroups2::ROOT_CGROUP));
+  EXPECT_ERROR(cgroups2::memory::maximum(cgroups2::ROOT_CGROUP, limit));
+
+  EXPECT_SOME(cgroups2::memory::maximum(cgroup, limit));
+  EXPECT_EQ(*cgroups2::memory::maximum(cgroup), limit);
+}
+
 } // namespace tests {
 } // namespace internal {
 } // namespace mesos {

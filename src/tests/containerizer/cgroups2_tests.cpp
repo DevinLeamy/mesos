@@ -17,6 +17,7 @@
 #include <set>
 #include <string>
 
+#include <stout/bytes.hpp>
 #include <stout/tests/utils.hpp>
 #include <stout/try.hpp>
 
@@ -94,6 +95,17 @@ TEST_F(Cgroups2MemoryTest, ROOT_CGROUPS2_MemoryUsage)
   EXPECT_SOME(cgroups2::memory::usage(cgroup));
 }
 
+
+TEST_F(Cgroups2MemoryTest, ROOT_CGROUPS2_MemoryMinimum)
+{
+  // Does not exist for the root cgroup.
+  EXPECT_ERROR(cgroups2::memory::minimum(cgroups2::ROOT_CGROUP));
+  EXPECT_ERROR(cgroups2::memory::minimum(cgroups2::ROOT_CGROUP, Bytes(1)));
+
+  const Bytes bytes = *Bytes::parse("30B");
+  EXPECT_SOME(cgroups2::memory::minimum(cgroup, bytes));
+  EXPECT_EQ(*cgroups2::memory::minimum(cgroup), bytes);
+}
 } // namespace tests {
 } // namespace internal {
 } // namespace mesos {

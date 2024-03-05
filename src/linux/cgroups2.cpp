@@ -423,6 +423,7 @@ namespace memory {
 namespace control {
 
 const string CURRENT = "memory.current";
+const string MIN = "memory.min";
 
 } // namespace control {
 
@@ -435,6 +436,28 @@ Try<Bytes> usage(const string& cgroup)
     return Error(
       "Failed to read 'memory.current' in '" + cgroup +
       "': " + contents.error());
+  }
+
+  return Bytes::parse(strings::trim(*contents) + "B");
+}
+
+
+Try<Nothing> minimum(const string& cgroup, const Bytes& bytes)
+{
+  RETURN_DNE_ERROR_IF_ROOT_CGROUP(cgroup);
+  return cgroups2::write(
+    cgroup, memory::control::MIN, std::to_string(bytes.bytes()));
+}
+
+
+Try<Bytes> minimum(const string& cgroup)
+{
+  RETURN_DNE_ERROR_IF_ROOT_CGROUP(cgroup);
+  Try<string> contents = cgroups2::read(cgroup, memory::control::MIN);
+
+  if (contents.isError()) {
+    return Error(
+      "Failed to read 'memory.min' in '" + cgroup + "': " + contents.error());
   }
 
   return Bytes::parse(strings::trim(*contents) + "B");

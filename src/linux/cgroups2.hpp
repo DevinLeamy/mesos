@@ -102,6 +102,18 @@ namespace memory {
 // descendants.
 Try<Bytes> usage(const std::string& cgroup);
 
+// Set the minimum memory that is guaranteed to not be reclaimed under any
+// conditions. If the value is larger than the parent cgroup's value, the
+// parent's value is the effective value.
+// Can only be set for non-root cgroups.
+Try<Nothing> minimum(const std::string& cgroup, const Bytes& bytes);
+
+
+// Get the minimum memory that is guaranteed to not be reclaimed under any
+// conditions.
+// Only exists for non-root cgroups.
+Try<Bytes> minimum(const std::string& cgroup);
+
 } // namespace memory {
 } // namespace cgroups2
 

@@ -53,6 +53,13 @@ Try<Nothing> write(
   const string& control,
   const string& value);
 
+
+#define RETURN_DNE_ERROR_IF_ROOT_CGROUP(cgroup)                 \
+if (cgroup == ROOT_CGROUP) {                                    \
+  return Error("Operation does not exist for the root cgroup"); \
+}
+
+
 namespace control {
 
 // Interface files found in all cgroups.

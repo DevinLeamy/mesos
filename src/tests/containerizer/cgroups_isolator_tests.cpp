@@ -16,6 +16,10 @@
 
 #include <limits>
 
+#ifdef ENABLE_CGROUPS_V2
+#include "linux/cgroups2.hpp"
+#endif // ENABLE_CGROUPS_V2
+
 #include <process/gmock.hpp>
 #include <process/gtest.hpp>
 #include <process/queue.hpp>
@@ -94,6 +98,13 @@ using testing::DoAll;
 using testing::InvokeWithoutArgs;
 using testing::Return;
 
+#ifdef ENABLE_CGROUPS_V2
+namespace cgroups2_paths =
+  mesos::internal::slave::containerizer::paths::cgroups2;
+
+using cgroups2::cpu::BandwidthLimit;
+#endif // ENABLE_CGROUPS_V2
+
 namespace mesos {
 namespace internal {
 namespace tests {
@@ -131,14 +142,21 @@ TEST_F(CgroupsIsolatorTest,
   flags.docker_store_dir = path::join(os::getcwd(), "store");
   flags.image_providers = "docker";
   flags.perf_events = "cpu-cycles"; // Needed for `PerfEventSubsystem`.
-  flags.isolation =
-    "cgroups/cpu,"
-    "cgroups/devices,"
-    "cgroups/mem,"
-    "cgroups/net_cls,"
-    "cgroups/perf_event,"
-    "docker/runtime,"
-    "filesystem/linux";
+
+  if (cgroupsV2()) {
+    flags.isolation = "cgroups/cpu,"
+      "docker/runtime,"
+      "filesystem/linux";
+  } else {
+    flags.isolation =
+      "cgroups/cpu,"
+      "cgroups/devices,"
+      "cgroups/mem,"
+      "cgroups/net_cls,"
+      "cgroups/perf_event,"
+      "docker/runtime,"
+      "filesystem/linux";
+  }
 
   Fetcher fetcher(flags);
 
@@ -231,37 +249,69 @@ TEST_F(CgroupsIsolatorTest,
 
   ContainerID containerId = *(containers->begin());
 
-  foreach (const string& subsystem, subsystems) {
-    Result<string> hierarchy = cgroups::hierarchy(subsystem);
-    ASSERT_SOME(hierarchy);
-
-    string cgroup = path::join(flags.cgroups_root, containerId.value());
+  if (cgroupsV2()) {
+#ifdef ENABLE_CGROUPS_V2
+    string cgroup = cgroups2_paths::container(flags.cgroups_root, containerId);
 
     // Verify that the user cannot manipulate the container's cgroup
     // control files as their owner is root.
-    EXPECT_SOME_NE(0, os::system(strings::format(
+    EXPECT_SOME_NE(0, os::system(*strings::format(
         "su - %s -s /bin/sh -c 'echo $$ > %s'",
-        user.get(),
-        path::join(hierarchy.get(), cgroup, "cgroup.procs")).get()));
+        *user,
+        path::join(cgroups2::path(cgroup), "cgroup.procs"))));
 
     // Verify that the user can create a cgroup under the container's
     // cgroup as the isolator changes the owner of the cgroup.
     string userCgroup = path::join(cgroup, "user");
 
-    EXPECT_SOME_EQ(0, os::system(strings::format(
+    EXPECT_SOME_EQ(0, os::system(*strings::format(
         "su - %s -s /bin/sh -c 'mkdir %s'",
-        user.get(),
-        path::join(hierarchy.get(), userCgroup)).get()));
+        *user,
+        cgroups2::path(userCgroup))));
 
     // Verify that the user can manipulate control files in the
     // created cgroup as it's owned by the user.
-    EXPECT_SOME_EQ(0, os::system(strings::format(
+    EXPECT_SOME_EQ(0, os::system(*strings::format(
         "su - %s -s /bin/sh -c 'echo $$ > %s'",
-        user.get(),
-        path::join(hierarchy.get(), userCgroup, "cgroup.procs")).get()));
+        *user,
+        path::join(cgroups2::path(userCgroup), "cgroup.procs"))));
 
     // Clear up the folder.
-    AWAIT_READY(cgroups::destroy(hierarchy.get(), userCgroup));
+    ASSERT_SOME(cgroups2::destroy(userCgroup));
+#endif // ENABLE_CGROUPS_V2
+  } else {
+    foreach (const string& subsystem, subsystems) {
+      Result<string> hierarchy = cgroups::hierarchy(subsystem);
+      ASSERT_SOME(hierarchy);
+
+      string cgroup = path::join(flags.cgroups_root, containerId.value());
+
+      // Verify that the user cannot manipulate the container's cgroup
+      // control files as their owner is root.
+      EXPECT_SOME_NE(0, os::system(strings::format(
+          "su - %s -s /bin/sh -c 'echo $$ > %s'",
+          user.get(),
+          path::join(hierarchy.get(), cgroup, "cgroup.procs")).get()));
+
+      // Verify that the user can create a cgroup under the container's
+      // cgroup as the isolator changes the owner of the cgroup.
+      string userCgroup = path::join(cgroup, "user");
+
+      EXPECT_SOME_EQ(0, os::system(strings::format(
+          "su - %s -s /bin/sh -c 'mkdir %s'",
+          user.get(),
+          path::join(hierarchy.get(), userCgroup)).get()));
+
+      // Verify that the user can manipulate control files in the
+      // created cgroup as it's owned by the user.
+      EXPECT_SOME_EQ(0, os::system(strings::format(
+          "su - %s -s /bin/sh -c 'echo $$ > %s'",
+          user.get(),
+          path::join(hierarchy.get(), userCgroup, "cgroup.procs")).get()));
+
+      // Clear up the folder.
+      AWAIT_READY(cgroups::destroy(hierarchy.get(), userCgroup));
+    }
   }
 
   driver.stop();
@@ -371,15 +421,27 @@ TEST_F(CgroupsIsolatorTest, ROOT_CGROUPS_RevocableCpu)
 
   ContainerID containerId = *(containers->begin());
 
-  Result<string> cpuHierarchy = cgroups::hierarchy("cpu");
-  ASSERT_SOME(cpuHierarchy);
+  if (cgroupsV2()) {
+#ifdef ENABLE_CGROUPS_V2
+    string cgroup = cgroups2_paths::container(
+        flags.cgroups_root, containerId);
 
-  string cpuCgroup = path::join(flags.cgroups_root, containerId.value());
+    double totalCpus = cpus.cpus().get() + DEFAULT_EXECUTOR_CPUS;
+    EXPECT_SOME_EQ(
+        CPU_SHARES_PER_CPU_REVOCABLE * totalCpus,
+        cgroups2::cpu::weight(cgroup));
+#endif // ENABLE_CGROUPS_V2
+  } else {
+    Result<string> cpuHierarchy = cgroups::hierarchy("cpu");
+    ASSERT_SOME(cpuHierarchy);
 
-  double totalCpus = cpus.cpus().get() + DEFAULT_EXECUTOR_CPUS;
-  EXPECT_SOME_EQ(
-      CPU_SHARES_PER_CPU_REVOCABLE * totalCpus,
-      cgroups::cpu::shares(cpuHierarchy.get(), cpuCgroup));
+    string cpuCgroup = path::join(flags.cgroups_root, containerId.value());
+
+    double totalCpus = cpus.cpus().get() + DEFAULT_EXECUTOR_CPUS;
+    EXPECT_SOME_EQ(
+        CPU_SHARES_PER_CPU_REVOCABLE * totalCpus,
+        cgroups::cpu::shares(cpuHierarchy.get(), cpuCgroup));
+  }
 
   driver.stop();
   driver.join();
@@ -474,35 +536,55 @@ TEST_F(CgroupsIsolatorTest, ROOT_CGROUPS_CFS_CommandTaskNoLimits)
 
   ContainerID containerId = *(containers->begin());
 
-  Result<string> cpuHierarchy = cgroups::hierarchy("cpu");
-  ASSERT_SOME(cpuHierarchy);
+  if (cgroupsV2()) {
+#ifdef ENABLE_CGROUPS_V2
+    string cgroup = cgroups2_paths::container(flags.cgroups_root, containerId);
 
-  Result<string> memoryHierarchy = cgroups::hierarchy("memory");
-  ASSERT_SOME(memoryHierarchy);
+    // Ensure the CPU shares and CFS quota are correctly set for the container.
+    EXPECT_SOME_EQ(
+        (uint64_t)(CPU_SHARES_PER_CPU * (0.5 + DEFAULT_EXECUTOR_CPUS)),
+        cgroups2::cpu::weight(cgroup));
 
-  string cgroup = path::join(flags.cgroups_root, containerId.value());
+    Try<BandwidthLimit> max = cgroups2::cpu::max(cgroup);
+    ASSERT_SOME(max);
 
-  // Ensure the CPU shares and CFS quota are correctly set for the container.
-  EXPECT_SOME_EQ(
-      (uint64_t)(CPU_SHARES_PER_CPU * (0.5 + DEFAULT_EXECUTOR_CPUS)),
-      cgroups::cpu::shares(cpuHierarchy.get(), cgroup));
+    double expectedQuota = (0.5 + DEFAULT_EXECUTOR_CPUS) * CPU_CFS_PERIOD.ms();
+    EXPECT_EQ(expectedQuota, max->limit->ms());
 
-  Try<Duration> cfsQuota =
-    cgroups::cpu::cfs_quota_us(cpuHierarchy.get(), cgroup);
+    // TODO(dleamy): Ensure the memory soft and hard limits are correctly
+    // set for the container.
+#endif // ENABLE_CGROUPS_V2
+  } else {
+    Result<string> cpuHierarchy = cgroups::hierarchy("cpu");
+    ASSERT_SOME(cpuHierarchy);
 
-  ASSERT_SOME(cfsQuota);
+    Result<string> memoryHierarchy = cgroups::hierarchy("memory");
+    ASSERT_SOME(memoryHierarchy);
 
-  double expectedCFSQuota = (0.5 + DEFAULT_EXECUTOR_CPUS) * CPU_CFS_PERIOD.ms();
-  EXPECT_EQ(expectedCFSQuota, cfsQuota->ms());
+    string cgroup = path::join(flags.cgroups_root, containerId.value());
 
-  // Ensure the memory soft and hard limits are correctly set for the container.
-  EXPECT_SOME_EQ(
-      Megabytes(32) + DEFAULT_EXECUTOR_MEM,
-      cgroups::memory::soft_limit_in_bytes(memoryHierarchy.get(), cgroup));
+    // Ensure the CPU shares and CFS quota are correctly set for the container.
+    EXPECT_SOME_EQ(
+        (uint64_t)(CPU_SHARES_PER_CPU * (0.5 + DEFAULT_EXECUTOR_CPUS)),
+        cgroups::cpu::shares(cpuHierarchy.get(), cgroup));
 
-  EXPECT_SOME_EQ(
-      Megabytes(32) + DEFAULT_EXECUTOR_MEM,
-      cgroups::memory::limit_in_bytes(memoryHierarchy.get(), cgroup));
+    Try<Duration> cfsQuota =
+      cgroups::cpu::cfs_quota_us(cpuHierarchy.get(), cgroup);
+
+    ASSERT_SOME(cfsQuota);
+
+    double expectedCFSQuota = (0.5 + DEFAULT_EXECUTOR_CPUS) * CPU_CFS_PERIOD.ms();
+    EXPECT_EQ(expectedCFSQuota, cfsQuota->ms());
+
+    // Ensure the memory soft and hard limits are correctly set for the container.
+    EXPECT_SOME_EQ(
+        Megabytes(32) + DEFAULT_EXECUTOR_MEM,
+        cgroups::memory::soft_limit_in_bytes(memoryHierarchy.get(), cgroup));
+
+    EXPECT_SOME_EQ(
+        Megabytes(32) + DEFAULT_EXECUTOR_MEM,
+        cgroups::memory::limit_in_bytes(memoryHierarchy.get(), cgroup));
+  }
 
   Future<ContainerStatus> status = containerizer->status(containerId);
   AWAIT_READY(status);
@@ -1461,7 +1543,11 @@ TEST_F(CgroupsIsolatorTest, ROOT_CGROUPS_CreateRecursively)
   ASSERT_SOME(master);
 
   slave::Flags flags = CreateSlaveFlags();
+#ifdef ENABLE_CGROUPS_V2
+  flags.isolation = "cgroups/cpu";
+#else
   flags.isolation = "cgroups/mem";
+#endif // ENABLE_CGROUPS_V2
 
   Fetcher fetcher(flags);
 

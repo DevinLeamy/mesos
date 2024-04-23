@@ -36,6 +36,11 @@
 #ifdef __linux__
 #include "linux/cgroups.hpp"
 #include "linux/fs.hpp"
+
+#ifdef ENABLE_CGROUPS_V2
+#include "linux/cgroups2.hpp"
+#endif // ENABLE_CGROUPS_V2
+
 #endif
 
 #ifdef ENABLE_PORT_MAPPING_ISOLATOR
@@ -55,6 +60,7 @@
 using mesos::master::detector::MasterDetector;
 
 using std::list;
+using std::set;
 using std::shared_ptr;
 using std::string;
 using std::vector;
@@ -579,7 +585,13 @@ slave::Flags ContainerizerTest<slave::MesosContainerizer>::CreateSlaveFlags()
 
   // Use cgroup isolators if they're available and we're root.
   // TODO(idownes): Refactor the cgroups/non-cgroups code.
-  if (cgroups::enabled() && user.get() == "root") {
+  if (cgroupsV2() && *user == "root") {
+    // TODO(dleamy): Add the memory isolator once it's supported by the cgroups
+    //               v2 isolator.
+    flags.isolation = "cgroups/cpu";
+    flags.cgroups_hierarchy = "/sys/fs/cgroup";
+    flags.cgroups_root = TEST_CGROUPS_ROOT;
+  } else if (cgroups::enabled() && *user == "root") {
     flags.isolation = "cgroups/cpu,cgroups/mem";
     flags.cgroups_hierarchy = baseHierarchy;
     flags.cgroups_root =
@@ -625,9 +637,16 @@ void ContainerizerTest<slave::MesosContainerizer>::SetUpTestCase()
   Result<string> user = os::user();
   EXPECT_SOME(user);
 
-  if (cgroups::enabled() && user.get() == "root") {
+  if (cgroupsV2() && *user == "root") {
+#ifdef ENABLE_CGROUPS_V2
+    // Clean up test cgroups.
+    if (cgroups2::exists(TEST_CGROUPS_ROOT)) {
+      ASSERT_SOME(cgroups2::destroy(TEST_CGROUPS_ROOT));
+    }
+#endif // ENABLE_CGROUPS_V2
+  } else if (cgroups::enabled() && *user == "root") {
     // Clean up any testing hierarchies.
-    Try<std::set<string>> hierarchies = cgroups::hierarchies();
+    Try<set<string>> hierarchies = cgroups::hierarchies();
     ASSERT_SOME(hierarchies);
     foreach (const string& hierarchy, hierarchies.get()) {
       if (strings::startsWith(hierarchy, TEST_CGROUPS_HIERARCHY)) {
@@ -645,9 +664,16 @@ void ContainerizerTest<slave::MesosContainerizer>::TearDownTestCase()
   Result<string> user = os::user();
   EXPECT_SOME(user);
 
-  if (cgroups::enabled() && user.get() == "root") {
+  if (cgroupsV2() && *user == "root") {
+#ifdef ENABLE_CGROUPS_V2
+    // Clean up test cgroups.
+    if (cgroups2::exists(TEST_CGROUPS_ROOT)) {
+      ASSERT_SOME(cgroups2::destroy(TEST_CGROUPS_ROOT));
+    }
+#endif // ENABLE_CGROUPS_V2
+  } else if (cgroups::enabled() && *user == "root") {
     // Clean up any testing hierarchies.
-    Try<std::set<string>> hierarchies = cgroups::hierarchies();
+    Try<set<string>> hierarchies = cgroups::hierarchies();
     ASSERT_SOME(hierarchies);
     foreach (const string& hierarchy, hierarchies.get()) {
       if (strings::startsWith(hierarchy, TEST_CGROUPS_HIERARCHY)) {
@@ -662,7 +688,43 @@ void ContainerizerTest<slave::MesosContainerizer>::SetUp()
 {
   MesosTest::SetUp();
 
-  Try<std::set<string>> supportedSubsystems = cgroups::subsystems();
+  if (cgroupsV2()) { SetupCgroupsV2(); }
+  else             { SetupCgroups(); }
+}
+
+
+void ContainerizerTest<slave::MesosContainerizer>::TearDown()
+{
+  MesosTest::TearDown();
+
+  Result<string> user = os::user();
+  EXPECT_SOME(user);
+
+  if (cgroupsV2() && *user == "root") {
+    TearDownCgroupsV2();
+  } else if (cgroups::enabled() && *user == "root") {
+    TearDownCgroups();
+  }
+}
+
+
+bool ContainerizerTest<slave::MesosContainerizer>::cgroupsV2()
+{
+#ifdef ENABLE_CGROUPS_V2
+  Try<bool> mounted = cgroups2::mounted();
+  if (mounted.isError()) {
+    return false;
+  }
+  return *mounted;
+#else
+  return false;
+#endif // ENABLE_CGROUPS_V2
+}
+
+
+void ContainerizerTest<slave::MesosContainerizer>::SetupCgroups()
+{
+  Try<set<string>> supportedSubsystems = cgroups::subsystems();
   ASSERT_SOME(supportedSubsystems);
 
   subsystems = supportedSubsystems.get();
@@ -727,7 +789,7 @@ void ContainerizerTest<slave::MesosContainerizer>::SetUp()
         // persisted that match our TEST_CGROUPS_ROOT (because
         // otherwise our tests will fail when we try and clean them up
         // later).
-        Try<std::vector<string>> cgroups = cgroups::get(hierarchy);
+        Try<vector<string>> cgroups = cgroups::get(hierarchy);
         ASSERT_SOME(cgroups);
 
         foreach (const string& cgroup, cgroups.get()) {
@@ -750,44 +812,70 @@ void ContainerizerTest<slave::MesosContainerizer>::SetUp()
 }
 
 
-void ContainerizerTest<slave::MesosContainerizer>::TearDown()
+void ContainerizerTest<slave::MesosContainerizer>::SetupCgroupsV2()
 {
-  MesosTest::TearDown();
+#ifdef ENABLE_CGROUPS_V2
+  if (!cgroups2::exists(TEST_CGROUPS_ROOT)) {
+    ASSERT_SOME(cgroups2::create(TEST_CGROUPS_ROOT));
+  }
 
-  Result<string> user = os::user();
-  EXPECT_SOME(user);
+  Try<set<string>> _controllers = cgroups2::controllers::available(
+      cgroups2::ROOT_CGROUP);
+  ASSERT_SOME(_controllers);
+  subsystems = *_controllers;
+  vector<string> controllers(std::make_move_iterator(_controllers->begin()),
+                             std::make_move_iterator(_controllers->end()));
 
-  if (cgroups::enabled() && user.get() == "root") {
-    foreach (const string& subsystem, subsystems) {
-      string hierarchy = path::join(baseHierarchy, subsystem);
+  // Enable all of the controllers inside of the test root cgroup so they
+  // are accessible from the child container cgroups.
+  ASSERT_TRUE(cgroups2::exists(TEST_CGROUPS_ROOT));
+  ASSERT_SOME(
+      cgroups2::controllers::enable(cgroups2::ROOT_CGROUP, controllers));
+  ASSERT_SOME(cgroups2::controllers::enable(TEST_CGROUPS_ROOT, controllers));
+#endif // ENABLE_CGROUPS_V2
+}
 
-      Try<std::vector<string>> cgroups = cgroups::get(hierarchy);
-      ASSERT_SOME(cgroups);
 
-      foreach (const string& cgroup, cgroups.get()) {
-        // Remove any cgroups that start with TEST_CGROUPS_ROOT.
-        if (strings::startsWith(cgroup, TEST_CGROUPS_ROOT)) {
-          // Cgroup destruction relies on `delay`s,
-          // so we must ensure the clock is resumed.
-          bool paused = Clock::paused();
+void ContainerizerTest<slave::MesosContainerizer>::TearDownCgroups()
+{
+  foreach (const string& subsystem, subsystems) {
+    string hierarchy = path::join(baseHierarchy, subsystem);
 
-          if (paused) {
-            Clock::resume();
-          }
+    Try<vector<string>> cgroups = cgroups::get(hierarchy);
+    ASSERT_SOME(cgroups);
 
-          // Since we are tearing down the tests, kill any processes
-          // that might remain. Any remaining zombie processes will
-          // not prevent the destroy from succeeding.
-          EXPECT_SOME(cgroups::kill(hierarchy, cgroup, SIGKILL));
-          AWAIT_READY(cgroups::destroy(hierarchy, cgroup));
+    foreach (const string& cgroup, cgroups.get()) {
+      // Remove any cgroups that start with TEST_CGROUPS_ROOT.
+      if (strings::startsWith(cgroup, TEST_CGROUPS_ROOT)) {
+        // Cgroup destruction relies on `delay`s,
+        // so we must ensure the clock is resumed.
+        bool paused = Clock::paused();
 
-          if (paused) {
-            Clock::pause();
-          }
+        if (paused) {
+          Clock::resume();
+        }
+
+        // Since we are tearing down the tests, kill any processes
+        // that might remain. Any remaining zombie processes will
+        // not prevent the destroy from succeeding.
+        EXPECT_SOME(cgroups::kill(hierarchy, cgroup, SIGKILL));
+        AWAIT_READY(cgroups::destroy(hierarchy, cgroup));
+
+        if (paused) {
+          Clock::pause();
         }
       }
     }
   }
+}
+
+
+void ContainerizerTest<slave::MesosContainerizer>::TearDownCgroupsV2()
+{
+#ifdef ENABLE_CGROUPS_V2
+  // Destroy all cgroups that were created under the test root cgroup.
+  ASSERT_SOME(cgroups2::destroy(TEST_CGROUPS_ROOT));
+#endif // ENABLE_CGROUPS_V2
 }
 #endif // __linux__
 
